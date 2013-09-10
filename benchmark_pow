@@ -1,0 +1,73 @@
+#!/usr/bin/env ruby
+
+require 'xmlrpc/client'
+require 'json'
+require 'base64'
+require 'trollop'
+
+
+
+def time_processing ack
+  start = Time.now
+  status = ""
+
+  while 1
+    status = JSON.parse($client.call(:getSentMessageByAckData, ack))['sentMessage'].first['status']
+    break if ["msgsent", "msgsentnoackexpected"].include? status
+    
+    if !['msgqueued','doingmsgpow'].include?(status)
+      puts "UNEXPECTED STATUS #{status}"
+    end
+    
+    if status == 'msgqueued'
+      start = Time.now
+    end
+
+    sleep(0.1)
+  end
+
+  end_time = Time.now
+
+  {:start => start, :end => end_time}
+end
+
+def benchmark(repetitions)
+  msg = "Run: 1\n"
+
+  1.upto(repetitions) do |x|
+
+    msg += "Message Size: #{$opts[:message_size]}\n"
+    msg += "Note: #{$opts[:note]}\n" if $opts[:note]
+
+    msg += "---\n"
+    msg += '.' * ($opts[:message_size] - msg.length)
+
+    ack = $client.call(:sendMessage, $default_address, $default_address, Base64.encode64("Benchmarking PoW"), Base64.encode64(msg))
+
+    puts ack
+
+    stats = time_processing(ack)
+
+    msg = "Run #{x + 1}...\n"
+    msg += "Last Run Stats\n"
+    msg += "Start: #{stats[:start]}\n"
+    msg += "End: #{stats[:end]}\n"
+    msg += "Total: #{stats[:end] - stats[:start]}\n"
+  end
+end
+
+#chan benchmark_pow
+$default_address = "BM-2D8qXNYhVq6LjJTdAWRdTxXnMuEEiPjhih"
+
+$opts = Trollop::options do
+  opt :conn, "api connection string.", :type => :string
+  opt :note, "note to include in message", :type => :string
+  opt :repetitions, "Number of repetitions", :default => 5
+  opt :message_size, "Message size", :default => 512
+end
+
+Trollop::die :conn, "conn info needed" if !$opts[:conn]
+
+$client = XMLRPC::Client.new2($opts[:conn])
+
+benchmark($opts[:repetitions])
